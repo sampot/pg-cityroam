@@ -19,7 +19,7 @@ const TILES_BASE = "assets/tiles";
 
 // 每個 cell type 對應的 tile 圖檔
 const TILE_FILES = {
-  [ROAD]:         "road_main.png",     // 主道路中央黃虛線
+  [ROAD]:         "road_main.png",     // 主道路（依方向在 tileFileFor 選 v/h）
   [ROAD_PLAIN]:   "road_plain.png",
   [SIDEWALK]:     "sidewalk.png",
   [CURB_TL]:      "curb.png",
@@ -167,11 +167,11 @@ function toPx(gx, gy) {
 function tileFileFor(d, x, y) {
   const t = d.grid[y][x];
   if (t === ROAD) {
-    const COL_V = new Set([6, 18]);
+    // 主街方向：橫向街在 y∈{8,14}，縱向街在 x∈{6,18}
     const ROW_H = new Set([8, 14]);
-    if (COL_V.has(x) && ROW_H.has(y)) return "road_main.png";
-    if (COL_V.has(x)) return "road_main.png";
-    if (ROW_H.has(y)) return "road_main.png";
+    const COL_V = new Set([6, 18]);
+    if (ROW_H.has(y)) return "road_main_h.png";   // 橫向馬路：虛線橫向
+    if (COL_V.has(x)) return "road_main_v.png";   // 縱向馬路：虛線縱向
     return "road_main.png";
   }
   if (t === SIDEWALK) {
