@@ -350,34 +350,56 @@ function updateHud() {
   }
 }
 
-/* 把 score 視為最高分候選：本機 sandbox 內持久化，並回報 runtime（/api/kv）代管。 */
+/* 最高分：以 runtime 的 Durable KV（/api/kv）為權威（跨沙盒共享）。
+ * 前端不直寫裸 localStorage 當權威；本機僅在 KV 不可用時作為逃生快取。 */
+const BEST_KEY = "pg-cityroam.best";
 let bestSaved = 0;
 async function saveBest(d) {
   if (d.score <= bestSaved) return;
   bestSaved = d.score;
-  // 本機暫存（輕量緩存，非權威）
-  try { localStorage.setItem("pg-cityroam.best", String(d.score)); } catch { /* ignore */ }
   d.best = d.score;
   const isNewBest = updateBest(d, d.score);
-  if (isNewBest && d.state === "won") el.overlayText.textContent += " 新紀錄！";
+  if (isNewBest && d.state === "won") {
+    el.overlayText.textContent += " 新紀錄！";
+  }
   try {
-    await fetch("/api/kv/pg-cityroam.best", { method: "PUT", body: String(d.score) });
-  } catch { /* ignore */ }
+    await fetch(`/api/kv/${BEST_KEY}`, { method: "PUT", body: String(d.score) });
+    localStorage.removeItem(BEST_KEY); // KV 寫成 → 清掉逃生快取
+  } catch {
+    try { localStorage.setItem(BEST_KEY, String(d.score)); } catch { /* ignore */ }
+  }
 }
 
 async function loadBest() {
+  let val = Number.NaN;
   try {
-    const res = await fetch("/api/kv/pg-cityroam.best");
-    if (res.ok) {
-      const val = Number(await res.text());
-      if (!Number.isNaN(val)) { bestSaved = val; if (state.d) state.d.best = val; }
-    }
+    const res = await fetch(`/api/kv/${BEST_KEY}`);
+    if (res.ok) val = Number(await res.text());
   } catch { /* ignore */ }
+  // KV 不可用時退回本機逃生快取
+  if (Number.isNaN(val)) {
+    try {
+      const local = Number(localStorage.getItem(BEST_KEY));
+      if (!Number.isNaN(local)) val = local;
+    } catch { /* ignore */ }
+  }
+  if (!Number.isNaN(val)) {
+    bestSaved = val;
+    if (state.d) state.d.best = val;
+  }
 }
 
 function newGame(seed) {
   state.seed = seed != null ? seed : Math.floor(Math.random() * 100000);
   state.d = generateCity(state.seed);
+  // 還原持久化的最高分（generateCity 預設 0）
+  if (bestSaved > 0) state.d.best = bestSaved;
+  else {
+    try {
+      const local = Number(localStorage.getItem(BEST_KEY));
+      if (!Number.isNaN(local) && local > 0) { bestSaved = local; state.d.best = local; }
+    } catch { /* ignore */ }
+  }
   state.d.log.unshift({ kind: "system", text: "踏入街區，撿金幣、躲員警。" });
   state.playerPx = toPx(state.d.player.x, state.d.player.y);
   state.playerTarget = { x: state.d.player.x, y: state.d.player.y };
@@ -386,6 +408,8 @@ function newGame(seed) {
   audio.stopBgm();
   if (audio.enabled) audio.playBgm();
   lastTimeTick = 0;
+  heldDir = null;
+  lastHeldStep = 0;
   setStatus("用方向鍵或下方按鈕移動；警察會追人，撿道具強化，時間內到出口過關。");
 }
 
@@ -410,7 +434,11 @@ function policeMove() {
   if (state.policeTarget.x !== state.d.police.x || state.policeTarget.y !== state.d.police.y) return;
   tickPolice(state.d);
   state.policeTarget = { x: state.d.police.x, y: state.d.police.y };
-  if (state.d.state === "caught") {
+  // 被警車撞到會把玩家彈開（bumpAway）→ 同步移動目標，避免卡住
+  state.playerTarget = { x: state.d.player.x, y: state.d.player.y };
+  state.playerPx.x = state.playerTarget.x * TILE + TILE / 2;
+  state.playerPx.y = state.playerTarget.y * TILE + TILE / 2;
+  if (state.d.state === "caught" || state.d.state === "timedout") {
     audio.play("lose");
     audio.stopBgm();
   }
@@ -418,6 +446,27 @@ function policeMove() {
 
 function setStatus(msg) {
   el.status.textContent = msg;
+}
+
+// 按住方向鍵／觸控鍵連續移動
+const HOLD_INITIAL = 200;   // 長押首次重複延遲（ms）
+const HOLD_INTERVAL = 140;  // 之後每次步進間隔（ms）
+let heldDir = null;         // 目前按住的方向
+let heldSince = 0;
+let lastHeldStep = 0;
+
+function startHold(dx, dy) {
+  audio.unlock();
+  heldDir = { dx, dy };
+  heldSince = performance.now();
+  lastHeldStep = 0;
+  move(dx, dy); // 按下即走一步
+}
+function endHold(dx, dy) {
+  if (heldDir && heldDir.dx === dx && heldDir.dy === dy) {
+    heldDir = null;
+    lastHeldStep = 0;
+  }
 }
 
 let lastPoliceStep = 0;
@@ -448,29 +497,53 @@ function tick(ts) {
       }
     }
   }
+  // 按住方向鍵：初次延遲後定時重複移動
+  if (heldDir) {
+    const now = performance.now();
+    const delay = lastHeldStep === 0 ? HOLD_INITIAL : HOLD_INTERVAL;
+    if (now - (lastHeldStep === 0 ? heldSince : lastHeldStep) >= delay) {
+      move(heldDir.dx, heldDir.dy);
+      lastHeldStep = now;
+    }
+  }
   draw();
   updateHud();
   requestAnimationFrame(tick);
 }
 
-function wireInput() {
-  window.addEventListener("keydown", (e) => {
-    audio.unlock();
-    if (e.repeat) return;
-    if (e.key === "ArrowLeft" || e.key === "a" || e.key === "A") move(-1, 0);
-    else if (e.key === "ArrowRight" || e.key === "d" || e.key === "D") move(1, 0);
-    else if (e.key === "ArrowUp" || e.key === "w" || e.key === "W") move(0, -1);
-    else if (e.key === "ArrowDown" || e.key === "s" || e.key === "S") move(0, 1);
-  });
+function handleKey(e, isDown) {
+  audio.unlock();
+  let dir = null;
+  if (e.key === "ArrowLeft" || e.key === "a" || e.key === "A") dir = { dx: -1, dy: 0 };
+  else if (e.key === "ArrowRight" || e.key === "d" || e.key === "D") dir = { dx: 1, dy: 0 };
+  else if (e.key === "ArrowUp" || e.key === "w" || e.key === "W") dir = { dx: 0, dy: -1 };
+  else if (e.key === "ArrowDown" || e.key === "s" || e.key === "S") dir = { dx: 0, dy: 1 };
+  if (!dir) return;
+  if (isDown) {
+    if (e.repeat) return; // 不使用原生 key repeat，統一用我們的 hold 節奏
+    startHold(dir.dx, dir.dy);
+  } else {
+    endHold(dir.dx, dir.dy);
+  }
+}
 
-  const mk = (elx, fn) => {
-    elx.addEventListener("touchstart", (e) => { e.preventDefault(); audio.unlock(); fn(); }, { passive: false });
-    elx.addEventListener("mousedown", (e) => { e.preventDefault(); audio.unlock(); fn(); });
+function wireInput() {
+  window.addEventListener("keydown", (e) => handleKey(e, true));
+  window.addEventListener("keyup", (e) => handleKey(e, false));
+
+  const mk = (elx, dx, dy) => {
+    // 觸控：按下開始 hold、放開結束（也支援滑鼠 press/release）
+    elx.addEventListener("touchstart", (e) => { e.preventDefault(); startHold(dx, dy); }, { passive: false });
+    elx.addEventListener("touchend", (e) => { e.preventDefault(); endHold(dx, dy); }, { passive: false });
+    elx.addEventListener("touchcancel", (e) => { e.preventDefault(); endHold(dx, dy); }, { passive: false });
+    elx.addEventListener("mousedown", (e) => { e.preventDefault(); startHold(dx, dy); });
+    elx.addEventListener("mouseup", (e) => { e.preventDefault(); endHold(dx, dy); });
+    elx.addEventListener("mouseleave", () => endHold(dx, dy));
   };
-  mk(el.touchLeft, () => move(-1, 0));
-  mk(el.touchRight, () => move(1, 0));
-  mk(el.touchUp, () => move(0, -1));
-  mk(el.touchDown, () => move(0, 1));
+  mk(el.touchLeft, -1, 0);
+  mk(el.touchRight, 1, 0);
+  mk(el.touchUp, 0, -1);
+  mk(el.touchDown, 0, 1);
 
   let touchStart = null;
   el.canvas.addEventListener("touchstart", (e) => {
