@@ -14,7 +14,7 @@
   <main>
     <header class="hero">
       <h1>巷弄迷走</h1>
-      <p class="subtitle">街區撿金幣、躲警察；走到出口即過關。</p>
+      <p class="subtitle">街區撿金幣、躲警察、拿道具；時間內走到出口得分。</p>
     </header>
 
     <section class="meter" aria-label="玩家狀態">
@@ -28,6 +28,11 @@
       <div class="meter-row meter-stats">
         <span class="chip">金幣 <b id="coins-left">6</b>/<b id="coins-total">6</b></span>
         <span class="chip">已收 <b id="gold">0</b></span>
+        <span class="chip" id="time-chip">時間 <b id="time">60</b>s</span>
+        <span class="chip">分數 <b id="score">0</b></span>
+        <span class="chip" id="best-chip">最佳 <b id="best">0</b></span>
+        <span class="chip" id="shield">無護盾</span>
+        <span class="chip" id="speed">無加速</span>
       </div>
     </section>
 
@@ -65,8 +70,9 @@
         <ul>
           <li>隨機生成的街區：道路、建築、裝飾、停車車。</li>
           <li>在道路（淺色）上走，撿光全部金幣。</li>
-          <li>警察（白色警車）會隨機巡邏；撞到 3 次就失敗。</li>
-          <li>撿完全部金幣 → 出口旗幟會出現；走上去即過關。</li>
+          <li>警察（白色警車）會在視線內追人；撞到扣 HP（3 次失敗）；限時 60 秒。</li>
+          <li>撿道具：護盾（藍）擋一次碰撞、加速鞋（黃）短時間雙步。</li>
+          <li>撿完全部金幣 → 出口旗幟會出現；走上去即過關，得分越高越好。</li>
           <li>移動：WASD／方向鍵；下方 ◀▲▼▶ 觸控鍵；畫面 swipe。</li>
         </ul>
       </details>

@@ -116,6 +116,8 @@ main {
 }
 .chip b { color: var(--accent); margin-right: 0.15rem; }
 .chip b:last-child { margin-right: 0; }
+.chip[data-on="true"] { border-color: var(--accent); color: var(--accent); font-weight: 700; }
+#time[data-warn="true"] { color: var(--bad); }
 
 /* Stage */
 .stage-wrap {
@@ -220,6 +222,7 @@ button:active { transform: translateY(1px); }
 #log li[data-tone="coin"] { color: var(--accent); }
 #log li[data-tone="system"] { color: var(--muted); font-style: italic; }
 #log li[data-tone="catch"] { color: var(--bad); }
+#log li[data-tone="item"] { color: #3ea6ff; }
 
 /* Rules */
 .rules {

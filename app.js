@@ -4,8 +4,9 @@
 
 import {
   TILE, VIEW_W, VIEW_H,
-  generateCity, tryPlayerMove, tickPolice,
-  coinsRemaining, coinsTotal,
+  generateCity, tryPlayerMove, tickPolice, tickTime, updateBest,
+  coinsRemaining, coinsTotal, itemsRemaining,
+  ITEM_SHIELD, ITEM_SPEED,
   ROAD, ROAD_PLAIN, SIDEWALK, CURB_TL, CURB_TR, CURB_BL, CURB_BR,
   CROSSWALK_H, CROSSWALK_V,
   BUILDING, TREE, CAR_RED, CAR_BLUE, COIN, EXIT,
@@ -56,6 +57,11 @@ const el = {
   gold: document.getElementById("gold"),
   coinsLeft: document.getElementById("coins-left"),
   coinsTotal: document.getElementById("coins-total"),
+  time: document.getElementById("time"),
+  score: document.getElementById("score"),
+  best: document.getElementById("best"),
+  shield: document.getElementById("shield"),
+  speed: document.getElementById("speed"),
   log: document.getElementById("log"),
   btnMute: document.getElementById("btn-mute"),
   btnNewGame: document.getElementById("btn-newgame"),
@@ -224,7 +230,7 @@ function draw() {
         if (t === TREE) overlay = tileImgs["tree.png"];
         else if (t === CAR_RED) overlay = tileImgs["car_red.png"];
         else if (t === CAR_BLUE) overlay = tileImgs["car_blue.png"];
-        else if (t === EXIT && d.exitActive) overlay = tileImgs["goal.png"];
+        else if (d.exitActive && x === d.exit.x && y === d.exit.y) overlay = tileImgs["goal.png"];
         if (overlay) ctx.drawImage(overlay, px, py, TILE, TILE);
       }
     }
@@ -237,6 +243,44 @@ function draw() {
     if (!img) continue;
     const wobble = Math.sin(state.anim * 0.08 + c.x + c.y) * 1.5;
     ctx.drawImage(img, c.x * TILE, c.y * TILE + wobble, TILE, TILE);
+  }
+
+  // 道具（程序化繪製：護盾=藍盾、加速鞋=黃鞋）
+  for (const it of d.items) {
+    if (it.taken) continue;
+    const px = it.x * TILE;
+    const py = it.y * TILE + Math.sin(state.anim * 0.06 + it.x) * 1.5;
+    ctx.save();
+    ctx.translate(px + TILE / 2, py + TILE / 2);
+    if (it.type === ITEM_SHIELD) {
+      ctx.fillStyle = "#3ea6ff";
+      ctx.beginPath();
+      ctx.moveTo(0, -7);
+      ctx.lineTo(7, -3);
+      ctx.lineTo(7, 4);
+      ctx.lineTo(0, 8);
+      ctx.lineTo(-7, 4);
+      ctx.lineTo(-7, -3);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(-2, -2, 4, 6);
+    } else {
+      ctx.fillStyle = "#ffd633";
+      ctx.strokeStyle = "#b8860b";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(-5, 3);
+      ctx.lineTo(-5, -6);
+      ctx.lineTo(0, -2);
+      ctx.lineTo(5, -7);
+      ctx.lineTo(5, 2);
+      ctx.lineTo(0, -2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   // 員警
@@ -270,6 +314,14 @@ function updateHud() {
   el.gold.textContent = String(d.player.gold);
   el.coinsLeft.textContent = String(coinsRemaining(d));
   el.coinsTotal.textContent = String(coinsTotal(d));
+  el.time.textContent = String(Math.max(0, Math.ceil(d.timeLeft)));
+  el.time.dataset.warn = d.timeLeft <= 10 ? "true" : "";
+  el.score.textContent = String(d.score);
+  el.best.textContent = String(d.best);
+  el.shield.dataset.on = d.player.shield > 0 ? "true" : "";
+  el.shield.textContent = d.player.shield > 0 ? `護盾×${d.player.shield}` : "無護盾";
+  el.speed.dataset.on = d.player.speed > 0 ? "true" : "";
+  el.speed.textContent = d.player.speed > 0 ? `加速×${d.player.speed}` : "無加速";
   el.log.innerHTML = "";
   for (const item of d.log.slice(0, 6)) {
     const li = document.createElement("li");
@@ -277,20 +329,50 @@ function updateHud() {
     li.textContent = item.text;
     el.log.appendChild(li);
   }
-  if (d.state === "caught" || d.state === "won") {
+  if (d.state === "caught" || d.state === "won" || d.state === "timedout") {
     el.overlay.dataset.show = "true";
     if (d.state === "won") {
       el.overlayTitle.textContent = "🎉 過關！";
       el.overlayTitle.dataset.tone = "win";
-      el.overlayText.textContent = `撿完 ${coinsTotal(d)} 金幣、躲過員警、抵達出口。`;
+      el.overlayText.textContent = `得分 ${d.score}。撿完 ${coinsTotal(d)} 金幣、躲過員警、抵達出口。`;
+    } else if (d.state === "timedout") {
+      el.overlayTitle.textContent = "⏰ 時間到！";
+      el.overlayTitle.dataset.tone = "die";
+      el.overlayText.textContent = `沒能在時間內過關，帶走 ${d.player.gold} 金幣、得分 ${d.score}。`;
     } else {
       el.overlayTitle.textContent = "🚨 被抓到了！";
       el.overlayTitle.dataset.tone = "die";
-      el.overlayText.textContent = `倒在城市街角，帶走 ${d.player.gold} 金幣。`;
+      el.overlayText.textContent = `倒在城市街角，帶走 ${d.player.gold} 金幣、得分 ${d.score}。`;
     }
+    saveBest(d);
   } else {
     el.overlay.dataset.show = "";
   }
+}
+
+/* 把 score 視為最高分候選：本機 sandbox 內持久化，並回報 runtime（/api/kv）代管。 */
+let bestSaved = 0;
+async function saveBest(d) {
+  if (d.score <= bestSaved) return;
+  bestSaved = d.score;
+  // 本機暫存（輕量緩存，非權威）
+  try { localStorage.setItem("pg-cityroam.best", String(d.score)); } catch { /* ignore */ }
+  d.best = d.score;
+  const isNewBest = updateBest(d, d.score);
+  if (isNewBest && d.state === "won") el.overlayText.textContent += " 新紀錄！";
+  try {
+    await fetch("/api/kv/pg-cityroam.best", { method: "PUT", body: String(d.score) });
+  } catch { /* ignore */ }
+}
+
+async function loadBest() {
+  try {
+    const res = await fetch("/api/kv/pg-cityroam.best");
+    if (res.ok) {
+      const val = Number(await res.text());
+      if (!Number.isNaN(val)) { bestSaved = val; if (state.d) state.d.best = val; }
+    }
+  } catch { /* ignore */ }
 }
 
 function newGame(seed) {
@@ -303,7 +385,8 @@ function newGame(seed) {
   state.policeTarget = { x: state.d.police.x, y: state.d.police.y };
   audio.stopBgm();
   if (audio.enabled) audio.playBgm();
-  setStatus("用方向鍵或下方按鈕移動；碰到警察會扣血。");
+  lastTimeTick = 0;
+  setStatus("用方向鍵或下方按鈕移動；警察會追人，撿道具強化，時間內到出口過關。");
 }
 
 function move(dx, dy) {
@@ -313,8 +396,10 @@ function move(dx, dy) {
   audio.unlock();
   const r = tryPlayerMove(state.d, dx, dy);
   if (r.blocked) return;
-  if (r.tookCoin) audio.play("coin");
-  else if (r.win) audio.play("win");
+  if (r.tookItem) {
+    audio.play(r.tookItem === ITEM_SHIELD ? "hit" : "coin2");
+  } else if (r.tookCoin) audio.play("coin");
+  else if (r.win) { audio.play("win"); }
   else audio.play("step" + (1 + Math.floor(Math.random() * 3)));
   state.playerTarget = { x: state.d.player.x, y: state.d.player.y };
 }
@@ -336,7 +421,8 @@ function setStatus(msg) {
 }
 
 let lastPoliceStep = 0;
-function tick() {
+let lastTimeTick = 0;
+function tick(ts) {
   state.anim++;
   const targetPlayer = toPx(state.playerTarget.x, state.playerTarget.y);
   const speed = 0.25;
@@ -348,6 +434,19 @@ function tick() {
   if (state.anim - lastPoliceStep > 28) {
     policeMove();
     lastPoliceStep = state.anim;
+  }
+  // 計時器：每 500ms 扣 0.5 秒（首幀錨定基準，避免開局瞬扣）
+  if (lastTimeTick === 0) {
+    lastTimeTick = ts;
+  } else if (ts - lastTimeTick >= 500) {
+    lastTimeTick = ts;
+    if (state.d && state.d.state === "playing") {
+      tickTime(state.d, 0.5);
+      if (state.d.state === "timedout") {
+        audio.play("lose");
+        audio.stopBgm();
+      }
+    }
   }
   draw();
   updateHud();
@@ -412,6 +511,7 @@ async function init() {
     await audio.unlock();
     await loadTiles();
     await audio.preloadAll();
+    await loadBest();
     newGame();
     requestAnimationFrame(tick);
   } catch (e) {

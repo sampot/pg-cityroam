@@ -31,6 +31,13 @@ export const EXIT = 16;
 export const PLAYER = 17;
 export const POLICE = 18;
 
+// 道具種類（以 items 陣列追蹤，不寫進 grid）
+export const ITEM_SHIELD = "shield"; // 護盾：擋下一次撞擊
+export const ITEM_SPEED = "speed";   // 加速鞋：短時間走得快（每步連走 2 格）
+
+// 追蹤距離：超過此格數就不展開視線追逐（給玩家喘息）
+export const POLICE_SIGHT = 9;
+
 // 可行走（玩家可走）的格子
 export const WALKABLE = new Set([
   ROAD, ROAD_PLAIN, SIDEWALK,
@@ -223,54 +230,115 @@ export function generateCity(seed) {
     coins.push({ x, y, taken: false });
   }
 
+  // 道具：2-3 個，放在 ROAD 上（避開起點／員警／出口／金幣／互相重疊）
+  const items = [];  let itemSafety = 0;
+  while (items.length < 3 && itemSafety < 600) {
+    itemSafety++;
+    const x = ri(rand, 0, W);
+    const y = ri(rand, 0, H);
+    if (grid[y][x] !== ROAD) continue;
+    if (!POLICE_WALKABLE.has(grid[y][x])) continue;
+    if (x === start.x && y === start.y) continue;
+    if (x === policeStart.x && y === policeStart.y) continue;
+    if (x === exit.x && y === exit.y) continue;
+    if (coins.some((c) => c.x === x && c.y === y)) continue;
+    if (items.some((i) => i.x === x && i.y === y)) continue;
+    items.push({ x, y, type: rand() < 0.5 ? ITEM_SHIELD : ITEM_SPEED, taken: false });
+  }
+
   return {
     seed,
     w: W,
     h: H,
     grid,
-    player: { x: start.x, y: start.y, hp: 3, maxHp: 3, gold: 0, face: "down" },
+    player: { x: start.x, y: start.y, hp: 3, maxHp: 3, gold: 0, face: "down", shield: 0, speed: 0 },
     police: {
       x: policeStart.x,
       y: policeStart.y,
       dir: 0, // 0=right, 1=down, 2=left, 3=up
       turnCooldown: 0,
+      chaseTurns: 0, // 視線追逐剩餘步數
     },
     coins,
+    items,
     buildings,
     exit: { x: exit.x, y: exit.y },
     exitActive: false,
     state: "playing", // playing | won | caught
+    timeLeft: 60,     // 秒；歸零 → 失敗
+    score: 0,
+    best: 0,          // 本機（runtime 代為持久化）最高分
     log: [],
   };
 }
 
-/** 嘗試玩家往 (dx, dy) 走一步。回傳 { moved, blocked, tookCoin?, hitPolice?, win? } */
+/** 嘗試玩家往 (dx, dy) 走一步。回傳 { moved, blocked, tookCoin?, tookItem?, usedShield?, hitPolice?, win? }
+ *  加速鞋生效時：一步內連走 2 格（speed 代表剩餘的雙步次數）。 */
 export function tryPlayerMove(d, dx, dy) {
   if (d.state !== "playing") return { blocked: true };
+  const speedActive = d.player.speed > 0;
+  const steps = speedActive ? 2 : 1;
+  let result = { moved: false };
+  for (let i = 0; i < steps; i++) {
+    if (d.state !== "playing") break;
+    const r = stepPlayer(d, dx, dy);
+    if (r.blocked) {
+      if (!result.moved) return { blocked: true };
+      break;
+    }
+    result = { ...result, ...r };
+  }
+  // 這次移動有使用加速 → 扣掉一次雙步（拾取當下不扣）
+  if (speedActive) d.player.speed -= 1;
+  return result;
+}
+
+/** 單格步進邏輯（供 tryPlayerMove 內部呼叫）。 */
+function stepPlayer(d, dx, dy) {
   const nx = d.player.x + dx;
   const ny = d.player.y + dy;
   if (nx < 0 || ny < 0 || nx >= d.w || ny >= d.h) return { blocked: true };
   const t = d.grid[ny][nx];
   if (!WALKABLE.has(t) && t !== COIN && t !== EXIT) return { blocked: true };
+  // 不能踩到員警所在的格子
+  if (nx === d.police.x && ny === d.police.y) return { blocked: true };
   // 更新方向
   if (dx > 0) d.player.face = "right";
   else if (dx < 0) d.player.face = "left";
   else if (dy > 0) d.player.face = "down";
   else if (dy < 0) d.player.face = "up";
+  const result = { moved: true };
   // 走到出口 → 過關
   if (d.exitActive && d.exit.x === nx && d.exit.y === ny) {
     d.player.x = nx;
     d.player.y = ny;
     d.state = "won";
-    return { moved: true, win: true };
+    d.log.unshift({ kind: "system", text: "抵達出口，過關！" });
+    d.score += 100 + d.player.hp * 50 + Math.ceil(d.timeLeft) * 20;
+    return { ...result, win: true };
   }
   d.player.x = nx;
   d.player.y = ny;
+  // 道具
+  const it = d.items.find((i) => !i.taken && i.x === nx && i.y === ny);
+  if (it) {
+    it.taken = true;
+    if (it.type === ITEM_SHIELD) {
+      d.player.shield += 1;
+      d.log.unshift({ kind: "item", text: "拾起護盾！下次碰撞不扣血。" });
+    } else {
+      d.player.speed += 2; // 2 次雙步
+      d.log.unshift({ kind: "item", text: "拾起加速鞋！短時間內走得快。" });
+    }
+    result.tookItem = it.type;
+    return result;
+  }
   // 金幣
   const c = d.coins.find((cc) => !cc.taken && cc.x === nx && cc.y === ny);
   if (c) {
     c.taken = true;
     d.player.gold += 1;
+    d.score += 25;
     d.log.unshift({ kind: "coin", text: "撿到 1 金幣" });
     if (d.coins.every((cc) => cc.taken) && !d.exitActive) {
       d.exitActive = true;
@@ -282,12 +350,18 @@ export function tryPlayerMove(d, dx, dy) {
       }
       d.log.unshift({ kind: "system", text: "所有金幣到手！出口已開啟。" });
     }
-    return { moved: true, tookCoin: true };
+    result.tookCoin = true;
+    return result;
   }
-  return { moved: true };
+  return result;
 }
 
-/** 員警 AI：沿當前方向走；碰到障礙或邊界就隨機轉 90 度。*/
+/**
+ * 員警 AI：
+ * - 若玩家在警車的視線範圍（同一條水平／垂直道路上、中間無建築擋住、距離 ≤ POLICE_SIGHT）
+ *   → 進入追逐（chaseTurns > 0），朝玩家所在方向走，走完 chaseTurns 格後恢復巡邏。
+ * - 否則沿當前方向巡邏；碰到障礙或邊界就隨機轉 90 度。
+ */
 export function tickPolice(d) {
   if (d.state !== "playing") return;
   const p = d.police;
@@ -298,6 +372,16 @@ export function tickPolice(d) {
     { dx: -1, dy: 0 },
     { dx: 0, dy: -1 },
   ];
+
+  // 偵測視線內玩家，決定目標方向與追逐步數
+  if (p.chaseTurns <= 0) {
+    const sight = policeSight(d, p, dirs);
+    if (sight) {
+      p.dir = sight.dir;
+      p.chaseTurns = Math.min(sight.dist, POLICE_SIGHT); // 追 1~9 格
+    }
+  }
+
   const cur = dirs[p.dir];
   const nx = p.x + cur.dx;
   const ny = p.y + cur.dy;
@@ -305,8 +389,18 @@ export function tickPolice(d) {
   if (nx < 0 || ny < 0 || nx >= d.w || ny >= d.h) blocked = true;
   else if (!POLICE_WALKABLE.has(d.grid[ny][nx])) blocked = true;
   else if (d.coins.some((c) => !c.taken && c.x === nx && c.y === ny)) blocked = true;
-  if (!blocked && nx === d.player.x && ny === d.player.y) blocked = true;
+  else if (d.items.some((i) => !i.taken && i.x === nx && i.y === ny)) blocked = true;
+  // 下一格就是玩家 → 直接撞上去扣血（不視為障礙轉向）
+  if (!blocked && nx === d.player.x && ny === d.player.y) {
+    p.x = nx;
+    p.y = ny;
+    p.chaseTurns = 0;
+    policeCatch(d);
+    return;
+  }
   if (blocked) {
+    // 追逐中碰到障礙→結束追逐；巡邏中→隨機轉
+    p.chaseTurns = 0;
     const choices = [0, 1, 2, 3].filter((i) => i !== (p.dir + 2) % 4);
     p.dir = choices[Math.floor(Math.random() * choices.length)];
     p.turnCooldown = 2;
@@ -314,14 +408,57 @@ export function tickPolice(d) {
   }
   p.x = nx;
   p.y = ny;
-  if (p.x === d.player.x && p.y === d.player.y) policeCatch(d);
+  if (p.chaseTurns > 0) p.chaseTurns -= 1;
+  if (p.x === d.player.x && p.y === d.player.y) {
+    p.chaseTurns = 0;
+    policeCatch(d);
+  }
 }
 
-/** 員警抓到玩家：扣 HP，0 時死亡；玩家彈回鄰近 SIDEWALK／ROAD。*/
+/** 偵測玩家是否在警車視線內；回傳 { dir, dist } 或 null。
+ *  視線 = 警車所在的街道列／行，朝四個方向看，直到碰到建築或邊界。 */
+function policeSight(d, p, dirs) {
+  let best = null;
+  for (let i = 0; i < 4; i++) {
+    const { dx, dy } = dirs[i];
+    // 警車只在道路／斑馬線上視線才成立
+    const pt = d.grid[p.y][p.x];
+    const onRoad = POLICE_WALKABLE.has(pt);
+    if (!onRoad) continue;
+    let x = p.x + dx;
+    let y = p.y + dy;
+    let dist = 1;
+    while (x >= 0 && y >= 0 && x < d.w && y < d.h && dist <= POLICE_SIGHT) {
+      const tt = d.grid[y][x];
+      if (!POLICE_WALKABLE.has(tt)) break; // 碰到建築／路緣／人行道→視線被擋
+      if (x === d.player.x && y === d.player.y) {
+        if (!best || dist < best.dist) best = { dir: i, dist };
+        break;
+      }
+      x += dx;
+      y += dy;
+      dist++;
+    }
+  }
+  return best;
+}
+
+/** 員警抓到玩家：扣 HP（有護盾則擋下），0 時死亡；玩家彈回鄰近 SIDEWALK／ROAD。*/
 function policeCatch(d) {
+  if (d.player.shield > 0) {
+    d.player.shield -= 1;
+    d.log.unshift({ kind: "item", text: "護盾擋下一次碰撞！" });
+    bumpAway(d);
+    return;
+  }
   d.player.hp -= 1;
   d.log.unshift({ kind: "catch", text: `被員警撞到！剩 ${d.player.hp}/${d.player.maxHp} HP` });
   if (d.player.hp <= 0) { d.state = "caught"; return; }
+  bumpAway(d);
+}
+
+/** 碰撞後把玩家往鄰近可走格彈開，警車反向退一格。 */
+function bumpAway(d) {
   const dirs = [
     { dx: 1, dy: 0 }, { dx: -1, dy: 0 },
     { dx: 0, dy: 1 }, { dx: 0, dy: -1 },
@@ -346,6 +483,28 @@ function policeCatch(d) {
 /** 計算剩餘金幣數。*/
 export function coinsRemaining(d) { return d.coins.filter((c) => !c.taken).length; }
 export function coinsTotal(d) { return d.coins.length; }
+
+/** 剩餘道具數（未拾取）。*/
+export function itemsRemaining(d) { return d.items.filter((i) => !i.taken).length; }
+
+/** 每秒扣除倒數計時；歸零 → 失敗。 */
+export function tickTime(d, dtSeconds) {
+  if (d.state !== "playing") return;
+  d.timeLeft -= dtSeconds;
+  if (d.timeLeft <= 0) {
+    d.timeLeft = 0;
+    d.state = "timedout";
+  }
+}
+
+/** 設定／更新最高分並回傳是否破紀錄。 */
+export function updateBest(d, score) {
+  if (score > d.best) {
+    d.best = score;
+    return true;
+  }
+  return false;
+}
 
 export const VIEW_W = 18 * TILE;
 export const VIEW_H = 12 * TILE;
