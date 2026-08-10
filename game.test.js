@@ -9,8 +9,6 @@ import {
   ROAD,
   BUILDING,
   EXIT,
-  PLAYER,
-  POLICE,
   COIN,
 } from "./game.js";
 
@@ -23,15 +21,14 @@ describe("rng", () => {
 });
 
 describe("generateCity", () => {
-  it("builds a 30x20 grid with roads and buildings", () => {
+  it("builds a 30x22 grid with roads and buildings", () => {
     const d = generateCity(7);
     expect(d.w).toBe(30);
-    expect(d.h).toBe(20);
-    expect(d.grid.length).toBe(20);
+    expect(d.h).toBe(22);
+    expect(d.grid.length).toBe(22);
     expect(d.grid[0].length).toBe(30);
     expect(d.coins.length).toBeGreaterThan(0);
     expect(d.coins.length).toBeLessThanOrEqual(8);
-    // 起點是 ROAD
     expect(d.grid[d.player.y][d.player.x]).toBe(ROAD);
   });
   it("deterministic for same seed", () => {
@@ -54,8 +51,7 @@ describe("generateCity", () => {
 describe("tryPlayerMove", () => {
   it("blocks into building", () => {
     const d = generateCity(5);
-    // 構造一個已知環境：玩家在 ROAD，右側是 BUILDING
-    d.grid[d.player.y][d.player.x] = ROAD;
+    // 玩家右側放 BUILDING，驗證被擋
     d.grid[d.player.y][d.player.x + 1] = BUILDING;
     const before = { x: d.player.x, y: d.player.y };
     const r = tryPlayerMove(d, 1, 0);
@@ -65,7 +61,7 @@ describe("tryPlayerMove", () => {
   });
   it("collects a coin when stepped on", () => {
     const d = generateCity(13);
-    // 強制放一個金幣在玩家右邊
+    // 玩家右側必須是 ROAD（不是裝飾或人行道）；強制 ROAD 並放金幣
     d.grid[d.player.y][d.player.x + 1] = ROAD;
     d.coins = [{ x: d.player.x + 1, y: d.player.y, taken: false }];
     const beforeGold = d.player.gold;
@@ -74,62 +70,68 @@ describe("tryPlayerMove", () => {
     expect(r.tookCoin).toBe(true);
     expect(d.player.gold).toBe(beforeGold + 1);
     expect(coinsRemaining(d)).toBe(0);
-    expect(d.exit).not.toBeNull();
+    expect(d.exitActive).toBe(true);
   });
-  it("opens exit at corner when all coins taken", () => {
+  it("opens exit when all coins taken", () => {
     const d = generateCity(13);
+    expect(d.exitActive).toBe(false);
     d.grid[d.player.y][d.player.x + 1] = ROAD;
     d.coins = [{ x: d.player.x + 1, y: d.player.y, taken: false }];
     tryPlayerMove(d, 1, 0);
-    expect(d.exit).not.toBeNull();
-    // 出口格已變 EXIT
-    expect(d.grid[d.exit.y][d.exit.x]).toBe(EXIT);
+    expect(d.exitActive).toBe(true);
   });
   it("stepping onto exit wins", () => {
     const d = generateCity(13);
     d.grid[d.player.y][d.player.x + 1] = ROAD;
     d.coins = [{ x: d.player.x + 1, y: d.player.y, taken: false }];
-    tryPlayerMove(d, 1, 0);
-    // 玩家現在在金幣處；把出口搬到玩家右側
+    tryPlayerMove(d, 1, 0); // 收集金幣 → exitActive=true
+    // 玩家現在在金幣處；把 exit 放到玩家右側並標 active
     d.exit = { x: d.player.x + 1, y: d.player.y };
     d.grid[d.exit.y][d.exit.x] = EXIT;
     const r = tryPlayerMove(d, 1, 0);
     expect(r.win).toBe(true);
     expect(d.state).toBe("won");
   });
+  it("sets face direction", () => {
+    const d = generateCity(13);
+    d.grid[d.player.y][d.player.x + 1] = ROAD;
+    tryPlayerMove(d, 1, 0);
+    expect(d.player.face).toBe("right");
+    d.grid[d.player.y][d.player.x + 1] = ROAD;
+    tryPlayerMove(d, -1, 0);
+    expect(d.player.face).toBe("left");
+  });
 });
 
 describe("tickPolice", () => {
   it("moves along current direction on road", () => {
     const d = generateCity(7);
-    // 強制員警在純 ROAD 上向右走
-    d.police.x = 5;
-    d.police.y = 9;
-    d.police.dir = 0;
-    d.grid[d.police.y][d.police.x] = ROAD;
-    d.grid[d.police.y][d.police.x + 1] = ROAD;
+    // 把員警放到縱向道路上（x=6 是縱向 ROAD）
+    d.police.x = 6;
+    d.police.y = 1;
+    d.police.dir = 1; // down
+    d.grid[1][6] = ROAD;
+    d.grid[2][6] = ROAD;
     // 玩家放遠
     d.player.x = 0;
     d.player.y = 0;
-    const before = d.police.x;
+    const before = d.police.y;
     tickPolice(d);
-    expect(d.police.x).toBe(before + 1);
+    expect(d.police.y).toBe(before + 1);
   });
   it("changes direction when blocked", () => {
     const d = generateCity(7);
     d.police.x = 5;
-    d.police.y = 9;
-    d.police.dir = 0; // 向右
+    d.police.y = 8;
+    d.police.dir = 0; // right
     d.police.turnCooldown = 0;
     d.grid[d.police.y][d.police.x] = ROAD;
-    d.grid[d.police.y][d.police.x + 1] = BUILDING; // 右邊擋住
+    d.grid[d.police.y][d.police.x + 1] = BUILDING; // right blocked
     d.player.x = 0;
     d.player.y = 0;
-    // 先跑一輪：撞牆 → 方向應改變（不是反向）
     tickPolice(d);
-    expect(d.police.dir).not.toBe(2); // 反向（dir 2）不會被選
+    expect(d.police.dir).not.toBe(2); // not reverse
     expect(d.police.turnCooldown).toBeGreaterThan(0);
-    // 員警不會前進（冷卻中）
     const afterX = d.police.x;
     tickPolice(d);
     expect(d.police.x).toBe(afterX);

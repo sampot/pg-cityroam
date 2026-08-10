@@ -1,59 +1,58 @@
 /**
  * pg-cityroam 主程式：Canvas 渲染、輸入、玩家步進、員警巡邏、HUD。
- *
- * 輸入：
- * - WASD／方向鍵
- * - 觸控 ◀▲▼▶ 右下按鈕
- * - 畫面 swipe
- *
- * 流程：
- * - 玩家走在 ROAD 上，撿 COIN，避開警察
- * - 撿完全部 COIN → 出口生成 → 走上去過關
- * - 被警察撞 3 次 → 失敗
  */
 
 import {
-  TILE,
-  VIEW_W,
-  VIEW_H,
-  generateCity,
-  tryPlayerMove,
-  tickPolice,
-  coinsRemaining,
-  coinsTotal,
-  ROAD,
-  BUILDING,
-  TREE,
-  LAMP,
-  BIN,
-  CAR_RED,
-  CAR_BLUE,
-  COIN,
-  EXIT,
-  PLAYER,
-  POLICE,
+  TILE, VIEW_W, VIEW_H,
+  generateCity, tryPlayerMove, tickPolice,
+  coinsRemaining, coinsTotal,
+  ROAD, ROAD_PLAIN, SIDEWALK, CURB_TL, CURB_TR, CURB_BL, CURB_BR,
+  CROSSWALK_H, CROSSWALK_V,
+  BUILDING, TREE, LAMP, BIN, CAR_RED, CAR_BLUE, COIN, EXIT,
+  PLAYER, POLICE,
 } from "./game.js";
 import { CityAudio } from "./audio.js";
 
 const audio = new CityAudio();
 
 const TILES_BASE = "assets/tiles";
+
+// 每個 cell type 對應的 tile 圖檔
 const TILE_FILES = {
-  [ROAD]: "road.png",
-  [BUILDING]: "building1.png",
-  [TREE]: "tree.png",
-  [LAMP]: "lamp.png",
-  [BIN]: "bin.png",
-  [CAR_RED]: "car_red.png",
-  [CAR_BLUE]: "car_blue.png",
-  [COIN]: "coin.png",
-  [EXIT]: "goal.png",
-  [PLAYER]: "player.png",
-  [POLICE]: "police.png",
+  [ROAD]:         "road_main_v.png",     // 主道路中央黃虛線（預設縱向；橫向會由 app 根據方位覆寫）
+  [ROAD_PLAIN]:   "road_plain.png",
+  [SIDEWALK]:     "sidewalk_h.png",
+  [CURB_TL]:      "curb_nw.png",
+  [CURB_TR]:      "curb_ne.png",
+  [CURB_BL]:      "curb_sw.png",
+  [CURB_BR]:      "curb_se.png",
+  [CROSSWALK_H]:  "crosswalk_h.png",
+  [CROSSWALK_V]:  "crosswalk.png",       // 現有 tile 中 crosswalk 是橫向斑馬線；改命名衝突
+  [BUILDING]:     "building1.png",
+  [TREE]:         "tree.png",
+  [LAMP]:         "lamp.png",
+  [BIN]:          "bin.png",
+  [CAR_RED]:      "car_red.png",
+  [CAR_BLUE]:     "car_blue.png",
+  [COIN]:         "coin.png",
+  [EXIT]:         "goal.png",
+  [PLAYER]:       "player_down.png",
+  [POLICE]:       "police.png",
+};
+const BUILDING_FILES = ["building1.png", "building2.png", "building3.png", "building4.png"];
+const PLAYER_FILES = {
+  up: "player_up.png",
+  down: "player_down.png",
+  left: "player_left.png",
+  right: "player_right.png",
 };
 
-// 多張建築紋理輪播
-const BUILDING_FILES = ["building1.png", "building2.png", "building3.png", "building4.png"];
+// 要載入的所有 tiles
+const TILE_FILES_FOR_LOAD = Array.from(new Set([
+  ...Object.values(TILE_FILES),
+  ...BUILDING_FILES,
+  ...Object.values(PLAYER_FILES),
+]));
 
 const el = {
   canvas: document.getElementById("stage"),
@@ -78,15 +77,14 @@ const el = {
 };
 el.c = el.canvas.getContext("2d");
 
-const tileImgs = {}; // 載入快取
-const TILE_FILES_FOR_LOAD = Array.from(new Set([...Object.values(TILE_FILES), ...BUILDING_FILES]));
+const tileImgs = {};
 
 let state = {
   d: null,
   seed: null,
   anim: 0,
-  playerPx: { x: 0, y: 0 }, // 平滑像素動畫
-  playerTarget: { x: 0, y: 0 }, // 移動目標（格）
+  playerPx: { x: 0, y: 0 },
+  playerTarget: { x: 0, y: 0 },
   policePx: { x: 0, y: 0 },
   policeTarget: { x: 0, y: 0 },
   drawScale: 1,
@@ -106,7 +104,6 @@ async function loadTiles() {
 }
 
 function buildingImgFor(x, y) {
-  // 為穩定，根據 (x,y) 選一張建築圖
   const i = ((x * 7 + y * 13) >>> 0) % BUILDING_FILES.length;
   return tileImgs[BUILDING_FILES[i]] || tileImgs["building1.png"];
 }
@@ -116,10 +113,7 @@ function fitCanvas() {
   const viewRatio = VIEW_W / VIEW_H;
   let h = rect.height;
   let w = rect.height * viewRatio;
-  if (w > rect.width) {
-    w = rect.width;
-    h = rect.width / viewRatio;
-  }
+  if (w > rect.width) { w = rect.width; h = w / viewRatio; }
   return { w, h, ox: (rect.width - w) / 2, oy: (rect.height - h) / 2 };
 }
 
@@ -130,9 +124,26 @@ function resizeCanvas() {
   el.c.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 
-/** 把 (gx, gy) 像素中心算出來 */
 function toPx(gx, gy) {
   return { x: gx * TILE + TILE / 2, y: gy * TILE + TILE / 2 };
+}
+
+/** 根據 cell type 與周圍，決定 tile 圖檔。 */
+function tileFileFor(d, x, y) {
+  const t = d.grid[y][x];
+  if (t === ROAD) {
+    // 主街位置：COL_V 道路（x=6,18）→ 縱向黃虛線；ROW_H 道路（y=8,14）→ 橫向黃虛線；其餘路口用縱向
+    const COL_V = new Set([6, 18]);
+    const ROW_H = new Set([8, 14]);
+    if (COL_V.has(x) && ROW_H.has(y)) return "road_main_v.png";
+    if (COL_V.has(x)) return "road_main_v.png";
+    if (ROW_H.has(y)) return "road_main_h.png";
+    return "road_main_h.png";
+  }
+  if (t === SIDEWALK) {
+    return "sidewalk_h.png";
+  }
+  return TILE_FILES[t] || null;
 }
 
 function draw() {
@@ -147,7 +158,6 @@ function draw() {
   ctx.translate(f.ox, f.oy);
   ctx.scale(state.drawScale, state.drawScale);
 
-  // 攝影機：玩家置中
   const d = state.d;
   const cx = state.playerPx.x;
   const cy = state.playerPx.y;
@@ -155,35 +165,34 @@ function draw() {
   const camY = cy - VIEW_H / 2;
   ctx.translate(-camX, -camY);
 
-  // 計算可見範圍
   const col0 = Math.max(0, Math.floor(camX / TILE) - 1);
   const col1 = Math.min(d.w - 1, Math.ceil((camX + VIEW_W) / TILE) + 1);
   const row0 = Math.max(0, Math.floor(camY / TILE) - 1);
   const row1 = Math.min(d.h - 1, Math.ceil((camY + VIEW_H) / TILE) + 1);
 
-  // 畫地圖
   for (let y = row0; y <= row1; y++) {
     for (let x = col0; x <= col1; x++) {
       const t = d.grid[y][x];
       const px = x * TILE;
       const py = y * TILE;
-      // 底層：道路或建築
       if (t === BUILDING) {
         const img = buildingImgFor(x, y);
         if (img) ctx.drawImage(img, px, py, TILE, TILE);
         else { ctx.fillStyle = "#3a3a44"; ctx.fillRect(px, py, TILE, TILE); }
       } else {
-        // 道路／裝飾：先畫道路底，再畫裝飾
-        const roadImg = tileImgs["road.png"];
-        if (roadImg) ctx.drawImage(roadImg, px, py, TILE, TILE);
+        // 用 tileFileFor 決定圖
+        const file = tileFileFor(d, x, y);
+        const img = file ? tileImgs[file] : null;
+        if (img) ctx.drawImage(img, px, py, TILE, TILE);
         else { ctx.fillStyle = "#444"; ctx.fillRect(px, py, TILE, TILE); }
+        // 裝飾覆蓋
         let overlay = null;
         if (t === TREE) overlay = tileImgs["tree.png"];
         else if (t === LAMP) overlay = tileImgs["lamp.png"];
         else if (t === BIN) overlay = tileImgs["bin.png"];
         else if (t === CAR_RED) overlay = tileImgs["car_red.png"];
         else if (t === CAR_BLUE) overlay = tileImgs["car_blue.png"];
-        else if (t === EXIT) overlay = tileImgs["goal.png"];
+        else if (t === EXIT && d.exitActive) overlay = tileImgs["goal.png"];
         if (overlay) ctx.drawImage(overlay, px, py, TILE, TILE);
       }
     }
@@ -194,27 +203,22 @@ function draw() {
     if (c.taken) continue;
     const img = tileImgs["coin.png"];
     if (!img) continue;
-    // 浮動動畫
     const wobble = Math.sin(state.anim * 0.08 + c.x + c.y) * 1.5;
-    const px = c.x * TILE;
-    const py = c.y * TILE + wobble;
-    ctx.drawImage(img, px, py, TILE, TILE);
+    ctx.drawImage(img, c.x * TILE, c.y * TILE + wobble, TILE, TILE);
   }
 
   // 員警
   {
-    const px = state.policePx.x - TILE / 2;
-    const py = state.policePx.y - TILE / 2;
     const img = tileImgs["police.png"];
-    if (img) ctx.drawImage(img, px, py, TILE, TILE);
+    if (img) ctx.drawImage(img, state.policePx.x - TILE / 2, state.policePx.y - TILE / 2, TILE, TILE);
   }
 
-  // 玩家
+  // 玩家（4 方向）
   {
-    const px = state.playerPx.x - TILE / 2;
-    const py = state.playerPx.y - TILE / 2;
-    const img = tileImgs["player.png"];
-    if (img) ctx.drawImage(img, px, py, TILE, TILE);
+    const face = state.d.player.face || "down";
+    const file = PLAYER_FILES[face] || "player_down.png";
+    const img = tileImgs[file];
+    if (img) ctx.drawImage(img, state.playerPx.x - TILE / 2, state.playerPx.y - TILE / 2, TILE, TILE);
   }
 
   ctx.restore();
@@ -266,23 +270,19 @@ function newGame(seed) {
   setStatus("用方向鍵或下方按鈕移動；碰到警察會扣血。");
 }
 
-/** 玩家步進：邏輯層呼叫，然後設定像素動畫目標。*/
 function move(dx, dy) {
   if (!state.d) return;
   if (state.d.state !== "playing") return;
-  if (state.playerTarget.x !== state.d.player.x || state.playerTarget.y !== state.d.player.y) return; // 動畫中
+  if (state.playerTarget.x !== state.d.player.x || state.playerTarget.y !== state.d.player.y) return;
   audio.unlock();
   const r = tryPlayerMove(state.d, dx, dy);
   if (r.blocked) return;
-  // 觸發音效
   if (r.tookCoin) audio.play("coin");
   else if (r.win) audio.play("win");
   else audio.play("step" + (1 + Math.floor(Math.random() * 3)));
-  // 設定目標 → 平滑動畫
   state.playerTarget = { x: state.d.player.x, y: state.d.player.y };
 }
 
-/** 員警步進：設定像素動畫目標。*/
 function policeMove() {
   if (!state.d) return;
   if (state.d.state !== "playing") return;
@@ -299,20 +299,16 @@ function setStatus(msg) {
   el.status.textContent = msg;
 }
 
-/** 主迴圈：動畫補間、員警節奏、HUD、畫面。*/
 let lastPoliceStep = 0;
 function tick() {
   state.anim++;
-  // 玩家補間
   const targetPlayer = toPx(state.playerTarget.x, state.playerTarget.y);
   const speed = 0.25;
   state.playerPx.x += (targetPlayer.x - state.playerPx.x) * speed;
   state.playerPx.y += (targetPlayer.y - state.playerPx.y) * speed;
-  // 員警補間
   const targetPolice = toPx(state.policeTarget.x, state.policeTarget.y);
   state.policePx.x += (targetPolice.x - state.policePx.x) * speed;
   state.policePx.y += (targetPolice.y - state.policePx.y) * speed;
-  // 員警節奏（每 ~480ms 走一步）
   if (state.anim - lastPoliceStep > 28) {
     policeMove();
     lastPoliceStep = state.anim;
@@ -341,7 +337,6 @@ function wireInput() {
   mk(el.touchUp, () => move(0, -1));
   mk(el.touchDown, () => move(0, 1));
 
-  // 畫面 swipe
   let touchStart = null;
   el.canvas.addEventListener("touchstart", (e) => {
     if (e.touches.length !== 1) return;
