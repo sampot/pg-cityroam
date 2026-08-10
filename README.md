@@ -45,7 +45,7 @@ audio.js            # Web Audio 載入 + BGM loop
 game.test.js        # vitest 單元測試
 functions.js        # Playgrounds Worker functions hook（預留）
 assets/
-  tiles/*.png       # Kenney Roguelike Modern City（CC0）+ 自繪（小人、警車、道路、旗、金幣）
+  tiles/*.png       # 全部自繪（程序產生）像素風格：道路、行人、警車、汽車、樹、旗、金幣
   tiles/License.txt
   sfx/*.ogg         # Kenney RPG Audio + HydroGene Lively City BGM（CC0）
 ```
@@ -58,6 +58,5 @@ npx vitest run
 
 ## 授權
 
-MIT（程式碼）。
-
-遊戲素材全部 CC0，署名見 [ATTRIBUTION.md](./ATTRIBUTION.md)。
+MIT（程式碼與美術）。
+音效／音樂為 CC0，署名見 [ATTRIBUTION.md](./ATTRIBUTION.md)。

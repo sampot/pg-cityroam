@@ -1,17 +1,17 @@
 # Attribution
 
-`pg-cityroam` 全部素材皆為 CC0，依本 repo 慣例仍逐一署名。
+`pg-cityroam` 的**美術**為本專案自繪，授權同專案（MIT）；音效／音樂為 CC0 素材，依本 repo 慣例逐一署名。
 
 ## 美術
 
 | 來源 | 作者 | 授權 |
 | --- | --- | --- |
-| `assets/tiles/tree.png`(0685)、`car_red.png`(0693)、`car_blue.png`(0694) | Kenney (www.kenney.nl) | CC0 1.0 |
-| `assets/tiles/road_plain.png`、`road_main.png`、`crosswalk_v.png`、`crosswalk_h.png`、`sidewalk.png`、`curb.png`、`player.png`（小人）、`police.png`（警車）、`coin.png`（圓形金幣）、`goal.png`（棋盤出口旗） | 本專案自繪（程序產生） | 同專案 MIT |
+| `assets/tiles/*.png`（道路、行人、警車、汽車、樹木、建築屋頂、金幣、出口旗） | 本專案自繪（程序產生） | 同專案 MIT |
 
-來源：https://kenney.nl/assets/roguelike-modern-city
+早期曾參考 Kenney Roguelike Modern City 素材（https://kenney.nl/assets/roguelike-modern-city），
+但最終貼圖已全數以本專案像素風格重繪，不留任何外部圖片素材。
 
-城市建築物屋頂為 `app.js` 程序化繪製（`drawBuildingTile`），非取自素材庫。
+城市建築物屋頂為 `app.js` 程序化繪製（`drawBuildingTile`）。
 
 ## 音樂
 
@@ -38,4 +38,4 @@
 
 ---
 
-授權全文見 `assets/tiles/License.txt` 與原始素材頁面。
+| 授權全文見各原始素材頁面。
