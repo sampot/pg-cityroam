@@ -39,10 +39,12 @@ const TILE_FILES = {
 };
 // 玩家單一站立小人（本 pack 人物無朝向），改用走路 bob 動畫
 const PLAYER_FILE = "player.png";
-// 要載入的所有 tiles
+// 要載入的所有 tiles（含依方向選取的橫／縱主道路）
 const TILE_FILES_FOR_LOAD = Array.from(new Set([
   ...Object.values(TILE_FILES),
   PLAYER_FILE,
+  "road_main_h.png",
+  "road_main_v.png",
 ]));
 
 const el = {
