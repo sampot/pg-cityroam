@@ -72,6 +72,7 @@ function ri(rand, lo, hi) { return lo + Math.floor(rand() * (hi - lo)); }
 export function generateCity(seed) {
   const rand = rng(seed);
   const W = 30, H = 22;
+  const buildings = [];
   const grid = Array.from({ length: H }, () =>
     Array.from({ length: W }, () => SIDEWALK)
   );
@@ -100,6 +101,8 @@ export function generateCity(seed) {
       const bH = Math.min(4, blockH);
       const bX0 = xLeft + Math.floor((blockW - bW) / 2);
       const bY0 = yTop + Math.floor((blockH - bH) / 2);
+      // 記錄建築矩形（供渲染畫屋頂）
+      buildings.push({ x: bX0, y: bY0, w: bW, h: bH });
       // BUILDING 4×4
       for (let dy = 0; dy < bH; dy++) {
         for (let dx = 0; dx < bW; dx++) {
@@ -127,12 +130,10 @@ export function generateCity(seed) {
         // 街角 1 格偏移（避開 BLOCK 邊、靠街道那側）
         if (yTop === 0 && c.y === 0) c.y = 1;
         if (yTop === 9 && c.y === 13) c.y = 12;
-        // 在街角格放 SIDEWALK；如果原是 SIDEWALK，根據方位決定是否升級為路緣或保留
+        // 在街角格放 SIDEWALK；如果原是 SIDEWALK，依機率放樹
         if (grid[c.y][c.x] === SIDEWALK) {
           const r = rand();
-          if (r < 0.18) grid[c.y][c.x] = TREE;
-          else if (r < 0.30) grid[c.y][c.x] = LAMP;
-          else if (r < 0.36) grid[c.y][c.x] = BIN;
+          if (r < 0.22) grid[c.y][c.x] = TREE;
         }
       }
     }
@@ -208,10 +209,8 @@ export function generateCity(seed) {
   // 出口：在左下角街道路面
   const exit = { x: 0, y: ROW_H[ROW_H.length - 1] };
   if (grid[exit.y][exit.x] !== ROAD) exit.x = findRoad(0, exit.y, 1);
-
   // 金幣：5-8 個，分散在 ROAD 上（不在起點、員警、出出口位置）
-  const coins = [];
-  let safety = 0;
+  const coins = [];  let safety = 0;
   while (coins.length < 6 && safety < 400) {
     safety++;
     const x = ri(rand, 0, W);
@@ -237,6 +236,7 @@ export function generateCity(seed) {
       turnCooldown: 0,
     },
     coins,
+    buildings,
     exit: { x: exit.x, y: exit.y },
     exitActive: false,
     state: "playing", // playing | won | caught

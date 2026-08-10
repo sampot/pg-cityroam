@@ -6,9 +6,12 @@
 
 | 來源 | 作者 | 授權 |
 | --- | --- | --- |
-| `assets/tiles/*.png`（Roguelike Modern City tiles 0000/0001/0007/0008/0020/0050/0070/0200/0270/0380/0500/0650/0720/0740/0760/0850/0990/1034/1035） | Kenney (www.kenney.nl) | CC0 1.0 |
+| `assets/tiles/road_plain.png`(0017)、`road_main.png`(0019)、`crosswalk_v.png`(0009)、`crosswalk_h.png`(0053)、`sidewalk.png`(0045)、`curb.png`(0061)、`tree.png`(0685)、`car_red.png`(0693)、`car_blue.png`(0694)、`police.png`(0718)、`coin.png`(0990)、`player_{up,down,left,right}.png`(0855/0859/0863/0867) | Kenney (www.kenney.nl) | CC0 1.0 |
+| `assets/tiles/goal.png`（出口旗） | 本專案自繪（程序產生） | 同專案 MIT |
 
 來源：https://kenney.nl/assets/roguelike-modern-city
+
+城市建築物屋頂為 `app.js` 程序化繪製（`drawBuildingTile`），非取自素材庫。
 
 ## 音樂
 

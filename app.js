@@ -8,7 +8,7 @@ import {
   coinsRemaining, coinsTotal,
   ROAD, ROAD_PLAIN, SIDEWALK, CURB_TL, CURB_TR, CURB_BL, CURB_BR,
   CROSSWALK_H, CROSSWALK_V,
-  BUILDING, TREE, LAMP, BIN, CAR_RED, CAR_BLUE, COIN, EXIT,
+  BUILDING, TREE, CAR_RED, CAR_BLUE, COIN, EXIT,
   PLAYER, POLICE,
 } from "./game.js";
 import { CityAudio } from "./audio.js";
@@ -19,19 +19,17 @@ const TILES_BASE = "assets/tiles";
 
 // 每個 cell type 對應的 tile 圖檔
 const TILE_FILES = {
-  [ROAD]:         "road_main_v.png",     // 主道路中央黃虛線（預設縱向；橫向會由 app 根據方位覆寫）
+  [ROAD]:         "road_main.png",     // 主道路中央黃虛線
   [ROAD_PLAIN]:   "road_plain.png",
-  [SIDEWALK]:     "sidewalk_h.png",
-  [CURB_TL]:      "curb_nw.png",
-  [CURB_TR]:      "curb_ne.png",
-  [CURB_BL]:      "curb_sw.png",
-  [CURB_BR]:      "curb_se.png",
+  [SIDEWALK]:     "sidewalk.png",
+  [CURB_TL]:      "curb.png",
+  [CURB_TR]:      "curb.png",
+  [CURB_BL]:      "curb.png",
+  [CURB_BR]:      "curb.png",
   [CROSSWALK_H]:  "crosswalk_h.png",
-  [CROSSWALK_V]:  "crosswalk.png",       // 現有 tile 中 crosswalk 是橫向斑馬線；改命名衝突
+  [CROSSWALK_V]:  "crosswalk_v.png",
   [BUILDING]:     "building1.png",
   [TREE]:         "tree.png",
-  [LAMP]:         "lamp.png",
-  [BIN]:          "bin.png",
   [CAR_RED]:      "car_red.png",
   [CAR_BLUE]:     "car_blue.png",
   [COIN]:         "coin.png",
@@ -39,18 +37,15 @@ const TILE_FILES = {
   [PLAYER]:       "player_down.png",
   [POLICE]:       "police.png",
 };
-const BUILDING_FILES = ["building1.png", "building2.png", "building3.png", "building4.png"];
 const PLAYER_FILES = {
   up: "player_up.png",
   down: "player_down.png",
   left: "player_left.png",
   right: "player_right.png",
 };
-
 // 要載入的所有 tiles
 const TILE_FILES_FOR_LOAD = Array.from(new Set([
   ...Object.values(TILE_FILES),
-  ...BUILDING_FILES,
   ...Object.values(PLAYER_FILES),
 ]));
 
@@ -103,9 +98,53 @@ async function loadTiles() {
   );
 }
 
-function buildingImgFor(x, y) {
-  const i = ((x * 7 + y * 13) >>> 0) % BUILDING_FILES.length;
-  return tileImgs[BUILDING_FILES[i]] || tileImgs["building1.png"];
+// 幾種鳥瞰屋頂配色（紅磚、灰水泥、黃褐、藍灰）
+const ROOF_COLORS = [
+  { fill: "#b0533a", edge: "#7e3a28", cap: "#c96b4e" },
+  { fill: "#8a8f98", edge: "#5f646d", cap: "#9aa0aa" },
+  { fill: "#c9a46a", edge: "#9c7c48", cap: "#d9b980" },
+  { fill: "#6d8ba6", edge: "#4a5f74", cap: "#82a0bc" },
+  { fill: "#a05a2f", edge: "#743d1c", cap: "#b9703f" },
+  { fill: "#7a7f8a", edge: "#545963", cap: "#8c919c" },
+];
+
+// 依 (x,y) 找所屬建築矩形
+function findBuilding(d, x, y) {
+  for (const b of d.buildings) {
+    if (x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h) return b;
+  }
+  return null;
+}
+
+/** 程序化繪製一格的鳥瞰屋頂（與相鄰格組成整棟建築）。 */
+function drawBuildingTile(ctx, d, x, y, px, py) {
+  const b = findBuilding(d, x, y);
+  if (!b) { ctx.fillStyle = "#333a44"; ctx.fillRect(px, py, TILE, TILE); return; }
+  const col = ROOF_COLORS[((b.x * 31 + b.y * 17) >>> 0) % ROOF_COLORS.length];
+  // 格內相對位置
+  const rx = x - b.x;
+  const ry = y - b.y;
+  const isTop = ry === 0;
+  const isLeft = rx === 0;
+  const isRight = rx === b.w - 1;
+  const isBottom = ry === b.h - 1;
+  ctx.fillStyle = col.fill;
+  ctx.fillRect(px, py, TILE, TILE);
+  // 往前的牆面（屋頂的東/南邊緣）製造 2.5D 效果
+  ctx.fillStyle = col.edge;
+  if (isBottom) ctx.fillRect(px, py + TILE - 6, TILE, 6);
+  if (isRight) ctx.fillRect(px + TILE - 6, py, 6, TILE);
+  // 屋頂四周細邊
+  ctx.fillStyle = col.cap;
+  if (isTop) ctx.fillRect(px, py, TILE, 2);
+  if (isLeft) ctx.fillRect(px, py, 2, TILE);
+  // 中央屋頂機電／通風箱（只有角格畫，避免重複）
+  if (rx === 1 && ry === 1) {
+    ctx.fillStyle = col.cap;
+    ctx.fillRect(px + 5, py + 5, TILE - 10, TILE - 10);
+    ctx.fillStyle = col.edge;
+    ctx.fillRect(px + 7, py + 7, TILE - 14, TILE - 14);
+  }
 }
 
 function fitCanvas() {
@@ -132,16 +171,15 @@ function toPx(gx, gy) {
 function tileFileFor(d, x, y) {
   const t = d.grid[y][x];
   if (t === ROAD) {
-    // 主街位置：COL_V 道路（x=6,18）→ 縱向黃虛線；ROW_H 道路（y=8,14）→ 橫向黃虛線；其餘路口用縱向
     const COL_V = new Set([6, 18]);
     const ROW_H = new Set([8, 14]);
-    if (COL_V.has(x) && ROW_H.has(y)) return "road_main_v.png";
-    if (COL_V.has(x)) return "road_main_v.png";
-    if (ROW_H.has(y)) return "road_main_h.png";
-    return "road_main_h.png";
+    if (COL_V.has(x) && ROW_H.has(y)) return "road_main.png";
+    if (COL_V.has(x)) return "road_main.png";
+    if (ROW_H.has(y)) return "road_main.png";
+    return "road_main.png";
   }
   if (t === SIDEWALK) {
-    return "sidewalk_h.png";
+    return "sidewalk.png";
   }
   return TILE_FILES[t] || null;
 }
@@ -176,20 +214,16 @@ function draw() {
       const px = x * TILE;
       const py = y * TILE;
       if (t === BUILDING) {
-        const img = buildingImgFor(x, y);
-        if (img) ctx.drawImage(img, px, py, TILE, TILE);
-        else { ctx.fillStyle = "#3a3a44"; ctx.fillRect(px, py, TILE, TILE); }
+        drawBuildingTile(ctx, d, x, y, px, py);
       } else {
         // 用 tileFileFor 決定圖
         const file = tileFileFor(d, x, y);
         const img = file ? tileImgs[file] : null;
         if (img) ctx.drawImage(img, px, py, TILE, TILE);
         else { ctx.fillStyle = "#444"; ctx.fillRect(px, py, TILE, TILE); }
-        // 裝飾覆蓋
+        // 裝飾覆蓋（僅需要覆蓋在地面 tile 上的物體）
         let overlay = null;
         if (t === TREE) overlay = tileImgs["tree.png"];
-        else if (t === LAMP) overlay = tileImgs["lamp.png"];
-        else if (t === BIN) overlay = tileImgs["bin.png"];
         else if (t === CAR_RED) overlay = tileImgs["car_red.png"];
         else if (t === CAR_BLUE) overlay = tileImgs["car_blue.png"];
         else if (t === EXIT && d.exitActive) overlay = tileImgs["goal.png"];

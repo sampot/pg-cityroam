@@ -45,7 +45,7 @@ audio.js            # Web Audio 載入 + BGM loop
 game.test.js        # vitest 單元測試
 functions.js        # Playgrounds Worker functions hook（預留）
 assets/
-  tiles/*.png       # Kenney Roguelike Modern City（CC0）
+  tiles/*.png       # Kenney Roguelike Modern City（CC0）+ 自繪出口旗
   tiles/License.txt
   sfx/*.ogg         # Kenney RPG Audio + HydroGene Lively City BGM（CC0）
 ```
