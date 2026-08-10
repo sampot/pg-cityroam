@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <meta name="theme-color" content="#0a0a14" />
+  <title>巷弄迷走 — pg-cityroam</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <div class="bg-ambiance" aria-hidden="true"></div>
+
+  <main>
+    <header class="hero">
+      <h1>巷弄迷走</h1>
+      <p class="subtitle">街區撿金幣、躲警察；走到出口即過關。</p>
+    </header>
+
+    <section class="meter" aria-label="玩家狀態">
+      <div class="meter-row meter-hp">
+        <span class="meter-label">HP</span>
+        <div class="bar-wrap" aria-label="生命值">
+          <div class="bar" id="hp-bar" style="width:100%"></div>
+          <span class="bar-text" id="hp">3/3</span>
+        </div>
+      </div>
+      <div class="meter-row meter-stats">
+        <span class="chip">金幣 <b id="coins-left">6</b>/<b id="coins-total">6</b></span>
+        <span class="chip">已收 <b id="gold">0</b></span>
+      </div>
+    </section>
+
+    <div class="stage-wrap">
+      <canvas id="stage" aria-label="城市街區"></canvas>
+
+      <div class="touch-pad" aria-label="方向控制">
+        <button id="t-up" class="t-btn" aria-label="向上">▲</button>
+        <button id="t-left" class="t-btn" aria-label="向左">◀</button>
+        <button id="t-down" class="t-btn" aria-label="向下">▼</button>
+        <button id="t-right" class="t-btn" aria-label="向右">▶</button>
+      </div>
+
+      <div id="overlay" class="overlay" data-show="" role="dialog" aria-modal="true">
+        <div class="overlay-inner">
+          <h2 id="overlay-title" data-tone="die">被抓到了</h2>
+          <p id="overlay-text"></p>
+          <button id="btn-restart" class="primary">重新開始</button>
+        </div>
+      </div>
+    </div>
+
+    <p id="status" class="status" role="status" aria-live="polite">載入中…</p>
+
+    <section class="controls">
+      <button id="btn-newgame" class="primary">新局</button>
+      <button id="btn-mute" aria-pressed="true">音效開</button>
+    </section>
+
+    <ul id="log" aria-label="事件紀錄"></ul>
+
+    <section class="rules">
+      <details open>
+        <summary>玩法</summary>
+        <ul>
+          <li>隨機生成的街區：道路、建築、裝飾、停車車。</li>
+          <li>在道路（淺色）上走，撿光全部金幣。</li>
+          <li>警察（白色警車）會隨機巡邏；撞到 3 次就失敗。</li>
+          <li>撿完全部金幣 → 出口旗幟會出現；走上去即過關。</li>
+          <li>移動：WASD／方向鍵；下方 ◀▲▼▶ 觸控鍵；畫面 swipe。</li>
+        </ul>
+      </details>
+    </section>
+
+    <section class="rules">
+      <details>
+        <summary>署名／授權</summary>
+        <p>美術：Kenney Roguelike Modern City（CC0）。音樂：HydroGene — Lively City（CC0）。音效：Kenney RPG Audio（CC0）、Juhani Junkala 8-bit SFX（CC0）。</p>
+      </details>
+    </section>
+  </main>
+</body>
+</html>
