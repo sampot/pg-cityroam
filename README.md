@@ -6,7 +6,7 @@
 
 `pg-cityroam` 是 [Playgrounds](https://github.com/sampot/playgrounds) 系列中的一個輕量街機：
 
-- 隨機生成 30×20 街區：道路、建築、裝飾、停車車
+- 隨機生成 30×22 街區：道路、建築、裝飾、停車車
 - 玩家（WASD／方向鍵／觸控／畫面 swipe）走在道路上
 - 撿光分散在路上的金幣；撿完後出口旗幟生成
 - 員警警車會隨機巡邏；撞到扣 HP，3 次扣完失敗
@@ -45,7 +45,7 @@ audio.js            # Web Audio 載入 + BGM loop
 game.test.js        # vitest 單元測試
 functions.js        # Playgrounds Worker functions hook（預留）
 assets/
-  tiles/*.png       # Kenney Roguelike Modern City（CC0）+ 自繪出口旗
+  tiles/*.png       # Kenney Roguelike Modern City（CC0）+ 自繪（小人、警車、道路、旗、金幣）
   tiles/License.txt
   sfx/*.ogg         # Kenney RPG Audio + HydroGene Lively City BGM（CC0）
 ```

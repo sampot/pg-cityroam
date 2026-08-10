@@ -6,8 +6,8 @@
 
 | 來源 | 作者 | 授權 |
 | --- | --- | --- |
-| `assets/tiles/road_plain.png`(0017)、`road_main.png`(0019)、`crosswalk_v.png`(0009)、`crosswalk_h.png`(0053)、`sidewalk.png`(0045)、`curb.png`(0061)、`tree.png`(0685)、`car_red.png`(0693)、`car_blue.png`(0694)、`police.png`(0718)、`player.png`(0795 綠衣行人) | Kenney (www.kenney.nl) | CC0 1.0 |
-| `assets/tiles/coin.png`（圓形金幣）、`goal.png`（出口旗） | 本專案自繪（程序產生） | 同專案 MIT |
+| `assets/tiles/tree.png`(0685)、`car_red.png`(0693)、`car_blue.png`(0694) | Kenney (www.kenney.nl) | CC0 1.0 |
+| `assets/tiles/road_plain.png`、`road_main.png`、`crosswalk_v.png`、`crosswalk_h.png`、`sidewalk.png`、`curb.png`、`player.png`（小人）、`police.png`（警車）、`coin.png`（圓形金幣）、`goal.png`（棋盤出口旗） | 本專案自繪（程序產生） | 同專案 MIT |
 
 來源：https://kenney.nl/assets/roguelike-modern-city
 
