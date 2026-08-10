@@ -34,19 +34,15 @@ const TILE_FILES = {
   [CAR_BLUE]:     "car_blue.png",
   [COIN]:         "coin.png",
   [EXIT]:         "goal.png",
-  [PLAYER]:       "player_down.png",
+  [PLAYER]:       "player.png",
   [POLICE]:       "police.png",
 };
-const PLAYER_FILES = {
-  up: "player_up.png",
-  down: "player_down.png",
-  left: "player_left.png",
-  right: "player_right.png",
-};
+// 玩家單一站立小人（本 pack 人物無朝向），改用走路 bob 動畫
+const PLAYER_FILE = "player.png";
 // 要載入的所有 tiles
 const TILE_FILES_FOR_LOAD = Array.from(new Set([
   ...Object.values(TILE_FILES),
-  ...Object.values(PLAYER_FILES),
+  PLAYER_FILE,
 ]));
 
 const el = {
@@ -247,12 +243,16 @@ function draw() {
     if (img) ctx.drawImage(img, state.policePx.x - TILE / 2, state.policePx.y - TILE / 2, TILE, TILE);
   }
 
-  // 玩家（4 方向）
+  // 玩家（站立小人 + 走路 bob）
   {
-    const face = state.d.player.face || "down";
-    const file = PLAYER_FILES[face] || "player_down.png";
-    const img = tileImgs[file];
-    if (img) ctx.drawImage(img, state.playerPx.x - TILE / 2, state.playerPx.y - TILE / 2, TILE, TILE);
+    const img = tileImgs[PLAYER_FILE];
+    if (img) {
+      // 走路時上下輕微跳動
+      const moving = state.playerPx.x !== state.playerTarget.x
+        || state.playerPx.y !== state.playerTarget.y;
+      const bob = moving ? Math.sin(state.anim * 0.3) * 1.2 : 0;
+      ctx.drawImage(img, state.playerPx.x - TILE / 2, state.playerPx.y - TILE / 2 + bob, TILE, TILE);
+    }
   }
 
   ctx.restore();
